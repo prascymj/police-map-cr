@@ -9,7 +9,7 @@
   var STORE_HQ = "policemap.hq";
 
   var $ = function (id) { return document.getElementById(id); };
-  var state = { hq: loadHq(), points: [], route: null };
+  var state = { hq: loadHq(), points: [], route: null, routeMode: "line", optimize: true };
   var map = null;
 
   // ---------- storage (ใช้ได้ก็ใช้ ใช้ไม่ได้ก็ข้าม) ----------
@@ -109,7 +109,7 @@
   // mode "star" = ภ.จว. ไปแต่ละจุด, "loop" = ภ.จว. ผ่านทุกจุดตามลำดับแล้วกลับ ภ.จว.
   var ROUTE_COLOR = { star: "#0b57d0", loop: "#7b1fa2" };
   var MAX_LOOP_POINTS = 25;          // Google Directions รับจุดแวะได้ 25 จุด ใช้เพดานเดียวกันทั้งสองระบบ
-  var OSRM_URL = "https://router.project-osrm.org/route/v1/driving/";
+  var OSRM_URL = "https://router.project-osrm.org"; // เปลี่ยนเป็นเซิร์ฟเวอร์ OSRM ของหน่วยงานได้
   var OSRM_GAP_MS = 1100;            // นโยบายเซิร์ฟเวอร์สาธิต OSRM: ไม่เกิน 1 ครั้งต่อวินาที
   var routeJob = 0;                  // เพิ่มทุกครั้งที่ข้อมูลเปลี่ยน ผลลัพธ์เก่าที่มาช้าจะถูกทิ้ง
   var googleRouteFailed = false;
@@ -119,7 +119,7 @@
   // คืนค่า { km, min, legs:[{km,min}], path:[[lat,lng],...] }
   function osrmRoute(coords) {
     var q = coords.map(function (c) { return c.lng.toFixed(6) + "," + c.lat.toFixed(6); }).join(";");
-    return fetch(OSRM_URL + q + "?overview=full&geometries=geojson&steps=false")
+    return fetch(OSRM_URL + "/route/v1/driving/" + q + "?overview=full&geometries=geojson&steps=false")
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (j) {
         if (j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error(j.message || j.code || "NoRoute");
@@ -152,16 +152,58 @@
     });
   }
 
+  // จัดลำดับให้สั้นที่สุด: coords = [ภ.จว., จุด1..n] เริ่มและจบที่ ภ.จว.
+  // คืนค่าเหมือน osrmRoute และเพิ่ม order = ลำดับ index ของจุด (0..n-1) ตามการวิ่ง
+  function osrmTrip(coords) {
+    var q = coords.map(function (c) { return c.lng.toFixed(6) + "," + c.lat.toFixed(6); }).join(";");
+    return fetch(OSRM_URL + "/trip/v1/driving/" + q + "?source=first&roundtrip=true&overview=full&geometries=geojson&steps=false")
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (j) {
+        if (j.code !== "Ok" || !j.trips || !j.trips.length) throw new Error(j.message || j.code || "NoTrip");
+        var t = j.trips[0];
+        var order = j.waypoints.map(function (w, idx) { return { idx: idx, pos: w.waypoint_index }; })
+          .filter(function (w) { return w.idx > 0; })
+          .sort(function (a, b) { return a.pos - b.pos; })
+          .map(function (w) { return w.idx - 1; });
+        return {
+          km: t.distance / 1000, min: t.duration / 60, order: order,
+          legs: t.legs.map(function (l) { return { km: l.distance / 1000, min: l.duration / 60 }; }),
+          path: t.geometry.coordinates.map(function (c) { return [c[1], c[0]]; })
+        };
+      });
+  }
+
+  function googleTrip(coords) {
+    var g = google.maps;
+    var svc = googleRoute.svc || (googleRoute.svc = new g.DirectionsService());
+    var toLL = function (c) { return { lat: c.lat, lng: c.lng }; };
+    return svc.route({
+      origin: toLL(coords[0]), destination: toLL(coords[0]), optimizeWaypoints: true,
+      waypoints: coords.slice(1).map(function (c) { return { location: toLL(c), stopover: true }; }),
+      travelMode: g.TravelMode.DRIVING, region: "th"
+    }).then(function (res) {
+      var rt = res.routes[0];
+      var legs = rt.legs.map(function (l) { return { km: l.distance.value / 1000, min: l.duration.value / 60 }; });
+      return {
+        km: legs.reduce(function (s, l) { return s + l.km; }, 0),
+        min: legs.reduce(function (s, l) { return s + l.min; }, 0),
+        legs: legs, order: rt.waypoint_order.slice(),
+        path: rt.overview_path.map(function (p) { return [p.lat(), p.lng()]; })
+      };
+    });
+  }
+
   function usingGoogle() { return map && map.name === "Google Maps" && !googleRouteFailed; }
 
-  function routeVia(coords) {
-    if (!usingGoogle()) return osrmRoute(coords);
-    return googleRoute(coords).catch(function (e) {
+  function routeVia(coords, optimize) {
+    var osrm = optimize ? osrmTrip : osrmRoute;
+    if (!usingGoogle()) return osrm(coords);
+    return (optimize ? googleTrip : googleRoute)(coords).catch(function (e) {
       // ถ้า key ไม่ได้เปิด Directions API จะได้ REQUEST_DENIED ใช้ OSRM แทนตลอดรอบนี้
       if (/DENIED|NOT_AUTHORIZED|OVER_QUERY_LIMIT/.test(String(e && (e.code || e.message)))) {
         googleRouteFailed = true;
         showMsgs([{ type: "warn", text: "Google Directions ใช้ไม่ได้กับ key นี้ (ต้องเปิด Directions API) จึงใช้ OSRM แทน" }], true);
-        return osrmRoute(coords);
+        return osrm(coords);
       }
       throw e;
     });
@@ -178,11 +220,21 @@
   var MODES = { star: "จาก ภ.จว. ไปแต่ละจุด", loop: "ตรวจต่อเนื่อง วนกลับ", line: "เส้นตรง" };
   var routeCache = {};               // ผลเส้นทางที่เคยหาแล้ว ไม่ต้องเรียกซ้ำ
 
-  function cachedRoute(coords) {
-    var key = (usingGoogle() ? "g:" : "o:") + coords.map(ll).join(";");
+  function cachedRoute(coords, optimize) {
+    var key = (usingGoogle() ? "g" : "o") + (optimize ? "t:" : "r:") + coords.map(ll).join(";");
     if (routeCache[key]) return Promise.resolve({ r: routeCache[key], hit: true });
-    return routeVia(coords).then(function (r) { routeCache[key] = r; return { r: r, hit: false }; });
+    return routeVia(coords, optimize).then(function (r) { routeCache[key] = r; return { r: r, hit: false }; });
   }
+
+  // ระยะถนนของจุดที่ i: โหมดไปแต่ละจุด = จาก ภ.จว., โหมดวนตรวจ = ช่วงที่มาถึงจุดนั้น
+  function legFor(i) {
+    var r = state.route;
+    if (!r) return null;
+    if (r.mode === "star") return r.legs[i];
+    var k = r.order.indexOf(i);
+    return k < 0 ? null : r.legs[k];
+  }
+  function visitNo(i) { var r = state.route; return r && r.mode === "loop" ? r.order.indexOf(i) + 1 : 0; }
 
   function routeStatus(text, type) {
     var el = $("routeStatus");
@@ -216,15 +268,21 @@
 
     var done;
     if (mode === "loop") {
-      routeStatus("กำลังหาเส้นทางตรวจต่อเนื่อง " + pts.length + " จุด", "busy");
-      done = cachedRoute([hq].concat(pts, [hq])).then(function (x) {
+      var opt = state.optimize && pts.length > 1;
+      routeStatus((opt ? "กำลังจัดลำดับและหาเส้นทาง " : "กำลังหาเส้นทางตรวจต่อเนื่อง ") + pts.length + " จุด", "busy");
+      var coords = opt ? [hq].concat(pts) : [hq].concat(pts, [hq]);
+      done = cachedRoute(coords, opt).then(function (x) {
         if (!ok()) return;
         var r = x.r;
+        var order = r.order || pts.map(function (_, i) { return i; });
+        var changed = order.some(function (v, k) { return v !== k; });
         state.route = {
           mode: "loop", engine: engine, legs: r.legs, total: { km: r.km, min: r.min },
+          order: order, optimized: opt, reordered: changed,
           lines: [{ path: r.path, label: "รวม " + r.km.toFixed(1) + " กม. " + fmtMin(r.min) }]
         };
-        routeStatus("ตรวจต่อเนื่อง (รวมขากลับ) " + r.km.toFixed(1) + " กม. ประมาณ " + fmtMin(r.min), "ok");
+        routeStatus((opt ? "ลำดับที่สั้นที่สุด" : "ตามลำดับที่กรอก") + " (รวมขากลับ) " + r.km.toFixed(1) +
+          " กม. ประมาณ " + fmtMin(r.min), "ok");
       });
     } else {
       // วาดทีละเส้นทันทีที่ได้ผล ผู้ใช้เห็นเส้นทางค่อย ๆ ขึ้นบนแผนที่
@@ -270,7 +328,15 @@
       maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
     }).addTo(m);
     var lineLayer = L.layerGroup().addTo(m);
-    var pinLayer = L.layerGroup().addTo(m);
+    // รวมหมุดที่อยู่ใกล้กันเป็นกลุ่มพร้อมจำนวน ซูมเข้าแล้วแยกเป็นหมุดเดี่ยว (หมุด ภ.จว. ไม่รวมกลุ่ม)
+    var pinLayer = L.markerClusterGroup ? L.markerClusterGroup({
+      maxClusterRadius: 40, showCoverageOnHover: false, disableClusteringAtZoom: 14, spiderfyOnMaxZoom: true,
+      iconCreateFunction: function (c) {
+        var n = c.getChildCount();
+        return L.divIcon({ className: "", iconSize: [36, 36], html: '<div class="cluster"><span>' + n + "</span></div>" });
+      }
+    }).addTo(m) : L.layerGroup().addTo(m);
+    var hqLayer = L.layerGroup().addTo(m);
     var markers = [], sig = null;
     var popupOpts = { maxWidth: 260, minWidth: 200, autoPanPadding: [16, 16] };
 
@@ -303,16 +369,17 @@
           return;
         }
         sig = nsig;
-        pinLayer.clearLayers(); markers = [];
+        pinLayer.clearLayers(); hqLayer.clearLayers(); markers = [];
         pts.forEach(function (p, i) {
           var build = function () { return popupHtml(p, i, state.hq); };
           var mk = L.marker([p.lat, p.lng], { icon: icon(String(i + 1), false) })
-            .bindPopup(build, L.extend({ build: build }, popupOpts)).addTo(pinLayer);
+            .bindPopup(build, L.extend({ build: build }, popupOpts));
           markers.push(mk);
         });
+        if (pinLayer.addLayers) pinLayer.addLayers(markers); else markers.forEach(function (mk) { pinLayer.addLayer(mk); });
         var hqBuild = function () { return hqPopupHtml(state.hq); };
         L.marker([hq.lat, hq.lng], { icon: icon("ภ", true), zIndexOffset: 1000 })
-          .bindPopup(hqBuild, L.extend({ build: hqBuild }, popupOpts)).addTo(pinLayer);
+          .bindPopup(hqBuild, L.extend({ build: hqBuild }, popupOpts)).addTo(hqLayer);
       },
       fit: function (hq, pts) {
         var all = [[hq.lat, hq.lng]].concat(pts.map(function (p) { return [p.lat, p.lng]; }));
@@ -322,8 +389,9 @@
       focus: function (i) {
         var mk = markers[i]; if (!mk) return;
         // ไม่ใช้แอนิเมชันตอนเลื่อน ให้ autoPan ของป๊อปอัปขยับแผนที่จนเห็นป๊อปอัปครบ
-        m.setView(mk.getLatLng(), Math.max(m.getZoom(), 13), { animate: false });
-        mk.openPopup();
+        m.setView(mk.getLatLng(), Math.max(m.getZoom(), 14), { animate: false });
+        if (pinLayer.zoomToShowLayer) pinLayer.zoomToShowLayer(mk, function () { mk.openPopup(); });
+        else mk.openPopup();
       },
       resize: function () { m.invalidateSize(); }
     };
@@ -338,6 +406,7 @@
     });
     var info = new g.InfoWindow({ maxWidth: 260 });
     var lines = [], pins = [], markers = [], sig = null, openBuild = null;
+    var clusterer = window.markerClusterer ? new markerClusterer.MarkerClusterer({ map: m, markers: [] }) : null;
     info.addListener("closeclick", function () { openBuild = null; });
 
     function open(build, anchor) { openBuild = build; info.setContent(build()); info.open({ map: m, anchor: anchor }); }
@@ -367,11 +436,14 @@
         if (nsig === sig) { if (openBuild) info.setContent(openBuild()); return; }
         sig = nsig;
         pins.forEach(function (o) { o.setMap(null); }); pins = []; markers = [];
+        if (clusterer) clusterer.clearMarkers();
         pts.forEach(function (p, i) {
-          var mk = new g.Marker({ map: m, position: { lat: p.lat, lng: p.lng }, label: { text: String(i + 1), color: "#fff", fontWeight: "700" }, title: p.name });
+          var mk = new g.Marker({ map: clusterer ? null : m, position: { lat: p.lat, lng: p.lng }, label: { text: String(i + 1), color: "#fff", fontWeight: "700" }, title: p.name });
           mk.addListener("click", function () { open(function () { return popupHtml(p, i, state.hq); }, mk); });
-          pins.push(mk); markers.push(mk);
+          markers.push(mk);
+          if (!clusterer) pins.push(mk);
         });
+        if (clusterer) clusterer.addMarkers(markers);
         var hqMk = new g.Marker({
           map: m, position: { lat: hq.lat, lng: hq.lng }, title: hq.name, zIndex: 1000,
           icon: { path: g.SymbolPath.CIRCLE, scale: 11, fillColor: "#c62828", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
@@ -389,8 +461,9 @@
       },
       focus: function (i) {
         var mk = markers[i]; if (!mk) return;
-        m.panTo(mk.getPosition()); if (m.getZoom() < 13) m.setZoom(13);
-        g.event.trigger(mk, "click");
+        // ซูมให้พ้นระยะรวมกลุ่มก่อน แล้วค่อยเปิดป๊อปอัปเมื่อแผนที่นิ่ง
+        m.panTo(mk.getPosition()); if (m.getZoom() < 16) m.setZoom(16);
+        g.event.addListenerOnce(m, "idle", function () { g.event.trigger(mk, "click"); });
       },
       resize: function () { /* Google จัดการเอง */ }
     };
@@ -425,6 +498,13 @@
     if (!key) { useLeaflet(); return; }
     var BAD_KEY = "Google Maps API key ใช้ไม่ได้ (ตรวจ key, การจำกัดโดเมน และการเปิด Maps JavaScript API) จึงสลับเป็น OpenStreetMap";
     loadGoogle(key).then(function () {
+      return new Promise(function (res) {
+        var s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/@googlemaps/markerclusterer@2.5.3/dist/index.min.js";
+        s.onload = res; s.onerror = res; // ถ้าโหลดไม่ได้ก็ใช้หมุดเดี่ยวตามเดิม
+        document.head.appendChild(s);
+      });
+    }).then(function () {
       var ready = false, fellBack = false;
       function fallback() { if (!ready && !fellBack) { fellBack = true; useLeaflet(BAD_KEY); } }
       // auth ล้มเหลวอาจมาหลังโหลดเสร็จ
@@ -455,10 +535,10 @@
   }
 
   function popupHtml(p, i, hq) {
-    var r = state.route, leg = r && r.legs[i];
+    var r = state.route, leg = legFor(i), k = visitNo(i);
     var road = leg
       ? '<div class="pp-road"><b>' + leg.km.toFixed(1) + " กม.</b> " + fmtMin(leg.min) +
-        '<span class="pp-sub">' + (r.mode === "star" ? "ทางถนนจาก ภ.จว." : "ทางถนนจากจุดก่อนหน้า") + "</span></div>"
+        '<span class="pp-sub">' + (r.mode === "star" ? "ทางถนนจาก ภ.จว." : "ทางถนนจากจุดก่อนหน้า (แวะลำดับที่ " + k + ")") + "</span></div>"
       : "";
     return '<div class="pp">' +
       '<div class="pp-title">' + (i + 1) + ". " + esc(p.name) + "</div>" +
@@ -506,11 +586,15 @@
       return straightKm == null ? "-" : s2 + pending;
     };
     var rows = ['<tr class="hq"><td class="c-no">ภ</td><td class="c-name"><b>' + esc(hq.name) + '</b><span class="sub">จุดอ้างอิง</span></td><td class="c-dist"></td><td class="c-act"></td></tr>'];
-    state.points.forEach(function (p, i) {
+    // โหมดวนตรวจเรียงแถวตามลำดับการวิ่ง ตัวเลขในวงกลมยังเป็นเลขหมุดบนแผนที่
+    var seq = rt && rt.mode === "loop" ? rt.order : state.points.map(function (_, i) { return i; });
+    seq.forEach(function (i, k) {
+      var p = state.points[i];
+      var visit = rt && rt.mode === "loop" ? '<span class="sub visit">แวะลำดับที่ ' + (k + 1) + "</span>" : "";
       rows.push('<tr data-i="' + i + '"><td class="c-no"><span class="no">' + (i + 1) + '</span></td>' +
-        '<td class="c-name"><b>' + esc(p.name) + '</b><span class="sub">' + "ทิศ" + dirName(p.deg) + (rt ? " เส้นตรง " + p.km.toFixed(1) + " กม." : "") + "</span>" +
+        '<td class="c-name"><b>' + esc(p.name) + "</b>" + visit + '<span class="sub">' + "ทิศ" + dirName(p.deg) + (rt ? " เส้นตรง " + p.km.toFixed(1) + " กม." : "") + "</span>" +
         "</td>" +
-        '<td class="c-dist">' + dist(rt && rt.legs[i], p.km) + "</td>" +
+        '<td class="c-dist">' + dist(legFor(i), p.km) + "</td>" +
         '<td class="c-act"><a class="navbtn" href="' + gmDirUrl(hq, p) + '" target="_blank" rel="noopener" title="นำทางจาก ภ.จว. ใน Google Maps">นำทาง</a></td></tr>');
     });
     if (rt && rt.mode === "loop" && state.points.length) {
@@ -520,6 +604,8 @@
     $("routeInfo").textContent = rt ? "เส้นทางคำนวณโดย " + rt.engine + " (พิกัดถูกส่งไปยังบริการนี้เพื่อคำนวณ) เวลาเป็นค่าประมาณสำหรับรถยนต์ ไม่รวมสภาพจราจร" : "";
     tb.innerHTML = rows.join("");
     $("empty").style.display = state.points.length ? "none" : "block";
+    $("loopOpts").hidden = state.routeMode !== "loop";
+    $("btnApplyOrder").hidden = !(rt && rt.mode === "loop" && rt.reordered);
 
     var route = $("btnRoute");
     var n = state.points.length;
@@ -527,7 +613,8 @@
       route.removeAttribute("href"); route.setAttribute("aria-disabled", "true");
       route.title = n ? "Google Maps รองรับได้ไม่เกิน " + MAX_ROUTE_POINTS + " จุดต่อเส้นทาง" : "";
     } else {
-      route.href = gmRouteUrl(hq, state.points); route.removeAttribute("aria-disabled"); route.title = "";
+      var ordered = rt && rt.mode === "loop" ? rt.order.map(function (i) { return state.points[i]; }) : state.points;
+      route.href = gmRouteUrl(hq, ordered); route.removeAttribute("aria-disabled"); route.title = "";
     }
   }
 
@@ -561,18 +648,21 @@
     var hq = state.hq;
     var rt = state.route;
     var roadHead = rt && rt.mode === "loop" ? "ช่วงถนนจากจุดก่อนหน้า" : "ถนนจาก " + hq.name;
-    var lines = [["ลำดับ", "ชื่อจุด", "ละติจูด", "ลองจิจูด", "ระยะเส้นตรงจาก " + hq.name + " (กม.)", "ทิศ",
+    var loop = rt && rt.mode === "loop";
+    var lines = [["ลำดับ", "ลำดับการวิ่ง", "ชื่อจุด", "ละติจูด", "ลองจิจูด", "ระยะเส้นตรงจาก " + hq.name + " (กม.)", "ทิศ",
       roadHead + " (กม.)", "เวลาโดยประมาณ (นาที)", "ลิงก์ Google Maps", "ลิงก์นำทาง"]];
     var road = function (leg) { return leg ? [leg.km.toFixed(2), Math.round(leg.min)] : ["", ""]; };
-    state.points.forEach(function (p, i) {
-      lines.push([i + 1, p.name, p.lat.toFixed(6), p.lng.toFixed(6), p.km.toFixed(2), dirName(p.deg)]
-        .concat(road(rt && rt.legs[i]), [gmPinUrl(p), gmDirUrl(hq, p)]));
+    var seq = loop ? rt.order : state.points.map(function (_, i) { return i; });
+    seq.forEach(function (i, k) {
+      var p = state.points[i];
+      lines.push([i + 1, loop ? k + 1 : "", p.name, p.lat.toFixed(6), p.lng.toFixed(6), p.km.toFixed(2), dirName(p.deg)]
+        .concat(road(legFor(i)), [gmPinUrl(p), gmDirUrl(hq, p)]));
     });
-    if (rt && rt.mode === "loop") {
-      lines.push(["", "กลับ " + hq.name, "", "", "", ""].concat(road(rt.legs[state.points.length]), ["", ""]));
-      lines.push(["", "รวมทั้งเส้นทาง", "", "", "", ""].concat(road(rt.total), ["", ""]));
+    if (loop) {
+      lines.push(["", "", "กลับ " + hq.name, "", "", "", ""].concat(road(rt.legs[state.points.length]), ["", ""]));
+      lines.push(["", "", "รวมทั้งเส้นทาง" + (rt.optimized ? " (จัดลำดับให้สั้นที่สุด)" : " (ตามลำดับที่กรอก)"), "", "", "", ""].concat(road(rt.total), ["", ""]));
     }
-    if (rt) lines.push(["", "เส้นทางคำนวณโดย " + rt.engine]);
+    if (rt) lines.push(["", "", "เส้นทางคำนวณโดย " + rt.engine]);
     var csv = lines.map(function (r) {
       return r.map(function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(",");
     }).join("\r\n");
@@ -611,6 +701,18 @@
     $("btnSample").addEventListener("click", function () { $("input").value = SAMPLE; plot(); });
     Array.prototype.forEach.call(document.querySelectorAll("[data-mode]"), function (b) {
       b.addEventListener("click", function () { setMode(b.getAttribute("data-mode")); autoRoute(); });
+    });
+    $("chkOptimize").addEventListener("change", function () {
+      state.optimize = $("chkOptimize").checked; autoRoute();
+    });
+    // เขียนรายการใหม่ตามลำดับการวิ่ง เลขหมุดบนแผนที่จะตรงกับลำดับที่ต้องแวะ
+    $("btnApplyOrder").addEventListener("click", function () {
+      var rt = state.route; if (!rt || !rt.order) return;
+      $("input").value = rt.order.map(function (i) {
+        var p = state.points[i];
+        return p.lat.toFixed(6) + ", " + p.lng.toFixed(6) + ", " + p.name.replace(/,/g, " ");
+      }).join("\n");
+      plot();
     });
     $("btnClear").addEventListener("click", function () {
       clearRoute();

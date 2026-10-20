@@ -80,6 +80,16 @@ button.ghost { background: transparent; }
 .seg .m-loop[aria-pressed="true"] { background: #7b1fa2; }
 .seg .m-line[aria-pressed="true"] { background: #5b6577; }
 .hint.privacy { font-size: .75rem; margin: 6px 0 0; }
+.loopopts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.loopopts[hidden], .loopopts [hidden] { display: none; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: .88rem; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 0; accent-color: #7b1fa2; }
+td .sub.visit { color: #7b1fa2; font-weight: 600; }
+.cluster {
+  width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--pt); color: #fff; font: 700 13px/1 system-ui, sans-serif;
+  border: 3px solid rgba(255,255,255,.9); box-shadow: 0 0 0 4px rgba(11,87,208,.3), 0 1px 4px rgba(0,0,0,.35);
+}
 .routestatus { font-size: .85rem; margin-top: 6px; min-height: 1.2em; color: var(--muted); }
 .routestatus.busy::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
 .routestatus.ok { color: var(--ok-text); }
