@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>แผนที่จุดตรวจ ภ.จว.ชร.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>แผนที่ตำแหน่งจาก ภ.จว.เชียงราย</h1>
+      <p class="sub">กรอกพิกัดได้หลายจุด ระบบปักหมุดและคำนวณระยะจาก ภ.จว.ชร. ให้</p>
+    </div>
+    <span id="engineBadge" class="badge">กำลังโหลดแผนที่</span>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <div class="sec-input">
+      <h2>1. กรอกพิกัด</h2>
+      <p class="hint">
+        บรรทัดละ 1 จุด รูปแบบ <code>ละติจูด, ลองจิจูด, ชื่อจุด</code> (ชื่อไม่บังคับ)
+        คัดลอกจาก Google Maps หรือวางจาก Excel (คั่นด้วยแท็บ) ได้เลย
+      </p>
+      <textarea id="input" rows="8" spellcheck="false"
+        placeholder="19.9100, 99.8400, จุดที่ 1&#10;20.4270, 99.8830, จุดที่ 2&#10;19.8900, 100.2950"></textarea>
+      <div class="row">
+        <button id="btnPlot" class="primary">ปักหมุด</button>
+        <button id="btnSample">ตัวอย่าง</button>
+        <label class="filebtn">นำเข้า CSV<input id="fileCsv" type="file" accept=".csv,.txt,text/csv"></label>
+        <button id="btnClear" class="ghost">ล้าง</button>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      </div>
+
+      <div class="sec-results">
+      <h2>2. ผลลัพธ์</h2>
+      <div class="row">
+        <button id="btnFit">ดูทุกจุด</button>
+        <a id="btnRoute" class="button" target="_blank" rel="noopener">เปิดเส้นทางวนใน Google Maps</a>
+        <button id="btnExport">ส่งออก CSV</button>
+      </div>
+      <div class="routebar">
+        <span class="routelabel">แสดงบนแผนที่</span>
+        <div class="seg" role="group" aria-label="รูปแบบเส้นทาง">
+          <button data-mode="line" class="m-line" aria-pressed="true">เส้นตรง</button>
+          <button data-mode="star" class="m-star" aria-pressed="false">ไปแต่ละจุด</button>
+          <button data-mode="loop" class="m-loop" aria-pressed="false">วนตรวจ</button>
+        </div>
+        <p class="hint privacy">เส้นตรง: คำนวณในเครื่อง ไม่ส่งพิกัดออกไป ไปแต่ละจุด/วนตรวจ: ส่งพิกัดไปบริการหาเส้นทางภายนอกเพื่อวาดเส้นทางถนน</p>
+        <div id="routeStatus" class="routestatus" aria-live="polite"></div>
+      </div>
+      <div class="tablewrap">
+        <table id="table">
+          <colgroup><col class="w-no"><col><col class="w-dist"><col class="w-act"></colgroup>
+          <thead>
+            <tr><th>#</th><th>จุด</th><th id="thRoad">ระยะ</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p id="empty" class="empty">ยังไม่มีจุด</p>
+      </div>
+      <p id="routeInfo" class="note"></p>
+      <p class="note">
+        แตะแถวในตารางหรือแตะหมุดบนแผนที่เพื่อดูรายละเอียดและปุ่มนำทาง (เปิดใน Google Maps) โหมดวนตรวจรองรับไม่เกิน 25 จุด ตามลำดับที่กรอก
+      </p>
+      </div>
+
+      <details class="settings">
+        <summary>ตั้งค่าจุดอ้างอิง (ภ.จว.)</summary>
+        <div class="grid3">
+          <label>ชื่อ<input id="hqName"></label>
+          <label>ละติจูด<input id="hqLat" inputmode="decimal"></label>
+          <label>ลองจิจูด<input id="hqLng" inputmode="decimal"></label>
+        </div>
+        <div class="row">
+          <button id="btnHqSave">บันทึกจุดอ้างอิง</button>
+          <button id="btnHqReset" class="ghost">คืนค่าเริ่มต้น</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="mapcol">
+      <div id="map" role="region" aria-label="แผนที่"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    ระบบนี้ไม่มีเซิร์ฟเวอร์และไม่เก็บข้อมูล ข้อความที่กรอกเก็บไว้ในเบราว์เซอร์ของเครื่องนี้เท่านั้น (กด "ล้าง" เพื่อลบ)
+    โหมดเส้นตรงไม่ส่งพิกัดออกนอกเครื่อง โหมดเส้นทางถนนส่งพิกัดไปยังบริการหาเส้นทาง (OSRM หรือ Google) เพื่อคำนวณ
+    และปุ่มนำทางส่งพิกัดของจุดนั้นไปยัง Google Maps
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
