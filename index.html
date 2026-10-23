@@ -9,70 +9,73 @@
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
   <header class="topbar">
     <div>
       <h1>แผนที่ตำแหน่งจาก ภ.จว.เชียงราย</h1>
-      <p class="sub">กรอกพิกัดได้หลายจุด ระบบปักหมุดและคำนวณระยะจาก ภ.จว.ชร. ให้</p>
+      <p class="sub">นำเข้าจุดตรวจ ปักหมุด คำนวณระยะจาก ภ.จว.ชร. และนำทางจากตำแหน่งปัจจุบัน</p>
     </div>
     <span id="engineBadge" class="badge">กำลังโหลดแผนที่</span>
   </header>
 
   <main class="layout">
     <section class="panel">
-      <div class="sec-input">
-      <h2>1. กรอกพิกัด</h2>
+      <div class="blk blk-import">
+      <h2>นำเข้าข้อมูลจุดตรวจ</h2>
       <p class="hint">
-        บรรทัดละ 1 จุด รูปแบบ <code>ละติจูด, ลองจิจูด, ชื่อจุด</code> (ชื่อไม่บังคับ)
-        คัดลอกจาก Google Maps หรือวางจาก Excel (คั่นด้วยแท็บ) ได้เลย
+        ทำได้ 2 แบบ (ไฟล์และข้อความอ่านในเครื่องนี้ ไม่ถูกอัปโหลด)
+        <b>ก.</b> กด <b>นำเข้าไฟล์ Excel</b> แล้วเลือกไฟล์จุดตรวจ (.xlsx)
+        <b>ข.</b> คัดลอกข้อความทั้งหมดจาก Excel (เลือกทั้งตาราง แล้ว Ctrl+C) มาวางในช่องด้านล่าง ปักหมุดให้ทันที
+        จะมีหรือไม่มีแถวหัวตารางก็ได้ พิกัดแบบ <code>20.25697N, 100.41035E</code> หรือ <code>20&deg;15'25.1"N</code> ก็อ่านได้
       </p>
-      <textarea id="input" rows="8" spellcheck="false"
-        placeholder="19.9100, 99.8400, จุดที่ 1&#10;20.4270, 99.8830, จุดที่ 2&#10;19.8900, 100.2950"></textarea>
       <div class="row">
-        <button id="btnPlot" class="primary">ปักหมุด</button>
+        <label class="filebtn primary">นำเข้าไฟล์ Excel<input id="fileImport" type="file" accept=".xlsx,.xls,.csv,.txt"></label>
         <button id="btnSample">ตัวอย่าง</button>
-        <label class="filebtn">นำเข้า CSV<input id="fileCsv" type="file" accept=".csv,.txt,text/csv"></label>
         <button id="btnClear" class="ghost">ล้าง</button>
+      </div>
+      <textarea id="input" rows="6" spellcheck="false" wrap="off"
+        placeholder="วางข้อความที่คัดลอกจาก Excel ที่นี่ (มีหรือไม่มีแถวหัวตารางก็ได้)&#10;หรือพิมพ์ เช่น 19.9100, 99.8400, จุดที่ 1"></textarea>
+      <div class="row">
+        <button id="btnPlot">ปักหมุดจากข้อความ</button>
+      </div>
+      </div>
+
+      <div class="blk blk-day">
+      <h2>ผลลัพธ์</h2>
+      <div class="dayrow">
+        <label class="check"><input type="checkbox" id="chkDay" checked> แสดงเฉพาะวันที่</label>
+        <input type="date" id="dayPick" aria-label="วันที่ที่ต้องการแสดง">
       </div>
       <div id="messages" class="messages" aria-live="polite"></div>
       </div>
 
-      <div class="sec-results">
-      <h2>2. ผลลัพธ์</h2>
-      <div class="row">
-        <button id="btnFit">ดูทุกจุด</button>
-        <a id="btnRoute" class="button" target="_blank" rel="noopener">เปิดเส้นทางวนใน Google Maps</a>
-        <button id="btnExport">ส่งออก CSV</button>
-      </div>
-      <div class="routebar">
-        <span class="routelabel">แสดงบนแผนที่</span>
-        <div class="seg" role="group" aria-label="รูปแบบเส้นทาง">
-          <button data-mode="line" class="m-line" aria-pressed="true">เส้นตรง</button>
-          <button data-mode="star" class="m-star" aria-pressed="false">ไปแต่ละจุด</button>
-          <button data-mode="loop" class="m-loop" aria-pressed="false">วนตรวจ</button>
+      <div class="blk blk-visit">
+      <div id="visitbar" class="visitbar" hidden>
+        <span class="routelabel">เลือกจุดไปตรวจ</span>
+        <div id="visitInfo" class="visitinfo"></div>
+        <div class="row">
+          <a id="btnVisit" class="button go" target="_blank" rel="noopener" aria-disabled="true">นำทางไปจุดที่เลือก</a>
+          <button id="btnSelClear" class="ghost" hidden>ล้างที่เลือก</button>
         </div>
-        <p class="hint privacy">เส้นตรง: คำนวณในเครื่อง ไม่ส่งพิกัดออกไป ไปแต่ละจุด/วนตรวจ: ส่งพิกัดไปบริการหาเส้นทางภายนอกเพื่อวาดเส้นทางถนน</p>
-        <div id="loopOpts" class="loopopts" hidden>
-          <label class="check"><input type="checkbox" id="chkOptimize" checked> จัดลำดับให้ระยะทางสั้นที่สุด</label>
-          <button id="btnApplyOrder" hidden>ใช้ลำดับนี้กับรายการ</button>
-        </div>
-        <div id="routeStatus" class="routestatus" aria-live="polite"></div>
       </div>
+      </div>
+
+      <div class="blk blk-list">
       <div class="tablewrap">
         <table id="table">
-          <colgroup><col class="w-no"><col><col class="w-dist"><col class="w-act"></colgroup>
+          <colgroup><col class="w-sel"><col class="w-no"><col><col class="w-dist"><col class="w-act"></colgroup>
           <thead>
-            <tr><th>#</th><th>จุด</th><th id="thRoad">ระยะ</th><th></th></tr>
+            <tr><th>ตรวจ</th><th>#</th><th>จุด</th><th id="thRoad">ระยะ</th><th></th></tr>
           </thead>
           <tbody></tbody>
         </table>
         <p id="empty" class="empty">ยังไม่มีจุด</p>
       </div>
-      <p id="routeInfo" class="note"></p>
       <p class="note">
-        แตะแถวในตารางหรือแตะหมุดบนแผนที่เพื่อดูรายละเอียดและปุ่มนำทาง (เปิดใน Google Maps) โหมดวนตรวจรองรับไม่เกิน 25 จุด ตามลำดับที่กรอก
+        แตะช่อง "ตรวจ" หรือปุ่ม "เลือกตรวจจุดนี้" ในหมุด เพื่อเลือกจุดที่จะไป (ลำดับที่แตะ = ลำดับที่ไป) แล้วกด "นำทางไปจุดที่เลือก"
+        แตะแถวในตารางหรือแตะหมุดบนแผนที่เพื่อดูรายละเอียด
       </p>
       </div>
 
@@ -92,18 +95,31 @@
 
     <section class="mapcol">
       <div id="map" role="region" aria-label="แผนที่"></div>
+      <div class="viewbar">
+        <div class="seg" role="group" aria-label="การแสดงผลบนแผนที่">
+          <button data-view="line" class="v-line" aria-pressed="true">เส้นตรง</button>
+          <button data-view="star" class="v-star" aria-pressed="false">ไปแต่ละจุดที่เลือก</button>
+          <button data-view="loop" class="v-loop" aria-pressed="false">วนตรวจจุดที่เลือก</button>
+        </div>
+        <div id="viewStatus" class="viewstatus" aria-live="polite"></div>
+      </div>
     </section>
   </main>
 
+  <!-- มือถือ: ปุ่มนำทางไปจุดที่เลือก ติดขอบล่างจอ เห็นตลอดขณะเลื่อนดูรายการ -->
+  <div id="visitDock" class="visitdock" hidden>
+    <a id="btnVisitDock" class="button go" target="_blank" rel="noopener">นำทางไปจุดที่เลือก</a>
+  </div>
+
   <footer class="foot">
     ระบบนี้ไม่มีเซิร์ฟเวอร์และไม่เก็บข้อมูล ข้อความที่กรอกเก็บไว้ในเบราว์เซอร์ของเครื่องนี้เท่านั้น (กด "ล้าง" เพื่อลบ)
-    โหมดเส้นตรงไม่ส่งพิกัดออกนอกเครื่อง โหมดเส้นทางถนนส่งพิกัดไปยังบริการหาเส้นทาง (OSRM หรือ Google) เพื่อคำนวณ
-    และปุ่มนำทางส่งพิกัดของจุดนั้นไปยัง Google Maps
+    ระยะทางถนนและเวลาจาก ภ.จว. คำนวณโดยส่งพิกัดของจุดในรายการไปยัง OSRM (router.project-osrm.org)
+    ปุ่มนำทางส่งพิกัดของจุดที่เลือกไปยัง Google Maps ซึ่งเริ่มนำทางจากตำแหน่งปัจจุบันของเครื่อง
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
-  <script src="config.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="config.js?v=13"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
