@@ -4,6 +4,8 @@
   var CFG = window.POLICE_MAP_CONFIG || {};
   var DEFAULT_HQ = CFG.hq || { name: "ภ.จว.เชียงราย", lat: 19.930841, lng: 99.877192 };
   var WARN_KM = CFG.warnDistanceKm || 200;
+  // เวรตรวจกลางคืนลากข้ามเที่ยงคืน: ก่อนเวลานี้ยังนับเป็นเวรของเมื่อวาน (ไฟล์ลงวันที่ตามวันเริ่มเวร)
+  var SHIFT_CUTOFF = isFinite(CFG.shiftCutoffHour) ? CFG.shiftCutoffHour : 6;
   var STORE_INPUT = "policemap.input";
   var STORE_HQ = "policemap.hq";
 
@@ -105,6 +107,21 @@
     var t = new Date(); t.setDate(t.getDate() + (offset || 0));
     return { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate() };
   }
+  // วันเวรปัจจุบัน: หลังเที่ยงคืนถึงก่อนเวลาตัดเวร ยังเป็นเวรของเมื่อวาน
+  function shiftToday() { return todayObj(new Date().getHours() < SHIFT_CUTOFF ? -1 : 0); }
+  function nextDay(o) {
+    var t = new Date(o.y, o.m - 1, o.d + 1);
+    return { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate() };
+  }
+  // เวลาในช่องเวลาเป็นช่วงหลังเที่ยงคืนของเวรหรือไม่ คืนข้อความกำกับ เช่น " (24 ต.ค.)"
+  function afterMidnight(p, v) {
+    var t = /(?:^|\D)(\d{1,2})[:.](\d{2})(?!\d)/.exec(String(v || "").replace(/\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/g, " "));
+    if (!t || +t[1] >= SHIFT_CUTOFF) return "";
+    var f = p.info.filter(function (x) { return H_DATE.test(x.k); })[0];
+    var day = f ? parseDay(f.v) : null;
+    return day ? " (" + nextDay(day).d + " " + TH_MON[nextDay(day).m - 1] + ")" : " (หลังเที่ยงคืน)";
+  }
+  var H_TIME = /เวลา/;
 
   // ---------- เตรียมข้อความที่วาง ----------
   // เลขไทยเป็นเลขอารบิก และช่องที่ Excel ใส่เครื่องหมายคำพูดเพราะมีขึ้นบรรทัดใหม่ในช่อง รวมเป็นบรรทัดเดียว
@@ -533,8 +550,6 @@
     if (state.points.length) {
       if (roadState.busy) html += '<span class="busy">กำลังคำนวณระยะทางถนนจาก ภ.จว.</span>';
       if (roadState.err) html += '<span class="err">' + esc(roadState.err) + "</span>";
-      html += '<span class="note">แผนที่แสดงเส้นตรงจาก ภ.จว. ไปทุกจุด ระยะในตารางเป็นระยะทางถนนและเวลาจาก ภ.จว. คำนวณโดย OSRM ' +
-        "(ส่งพิกัดของจุดในรายการไปคำนวณ) เวลาเป็นค่าประมาณสำหรับรถยนต์ ไม่รวมสภาพจราจร</span>";
     }
     $("roadStatus").innerHTML = html;
   }
@@ -816,7 +831,7 @@
       ? '<dl class="pp-info">' + p.info.map(function (f) {
           var v = H_PHONE.test(f.k) && /\d{3}/.test(f.v)
             ? '<a href="tel:' + esc(f.v.replace(/[^\d+]/g, "")) + '">' + esc(f.v) + "</a>"
-            : esc(f.v);
+            : esc(f.v + (H_TIME.test(f.k) ? afterMidnight(p, f.v) : ""));
           return "<dt>" + esc(f.k) + "</dt><dd>" + v + "</dd>";
         }).join("") + "</dl>"
       : "";
@@ -907,6 +922,7 @@
         var f = p.info.filter(function (x) { return re.test(x.k); })[0];
         var v = f ? f.v : "";
         parts.forEach(function (q) { if (v.indexOf(q + " ") === 0) v = v.slice(q.length + 1); });
+        if (v && re === H_SUMMARY[2]) v += afterMidnight(p, v);
         if (v && parts.indexOf(v) < 0) parts.push(v);
       });
       var summary = parts.join(" ");
@@ -932,7 +948,7 @@
     $("btnOrder").hidden = ns < 3;
     $("btnOrder").disabled = orderBusy;
     $("btnOrder").textContent = orderBusy ? "กำลังจัดลำดับ" : "จัดลำดับให้ระยะรวมสั้นที่สุด";
-    $("visitInfo").innerHTML = ns ? visitHtml() : esc("แตะช่องหน้าจุดที่จะไปตรวจ ตามลำดับที่จะไป (ไม่เกิน " + MAX_VISIT + " จุด) เลือกตั้งแต่ 3 จุด จัดลำดับให้ระยะรวมสั้นที่สุดได้");
+    $("visitInfo").innerHTML = ns ? visitHtml() : esc("ติ๊กช่อง \"ตรวจ\" หน้าจุดที่จะไป (ไม่เกิน " + MAX_VISIT + " จุด)");
     if (ns) {
       visit.href = gmVisitUrl(state.sel.map(function (i) { return state.points[i]; }));
       visit.removeAttribute("aria-disabled");
@@ -978,7 +994,7 @@
   function selectedDay() {
     if (!$("chkDay").checked) return 0;
     var v = $("dayPick").value;   // yyyy-mm-dd
-    return dayKey(v ? parseDay(v) : todayObj());
+    return dayKey(v ? parseDay(v) : shiftToday());
   }
   function keyToDay(k) { return { y: Math.floor(k / 10000), m: Math.floor(k / 100) % 100, d: k % 100 }; }
 
@@ -988,13 +1004,13 @@
   function dayMsgs(r) {
     var want = selectedDay(), keys = Object.keys(r.days).map(Number).sort(function (a, b) { return b - a; });
     if (!want || !keys.length) return [];
-    var label = fmtDay(keyToDay(want)) + (want === dayKey(todayObj()) ? " (วันนี้)" : "");
+    var label = fmtDay(keyToDay(want)) + (want === dayKey(shiftToday()) ? " (เวรปัจจุบัน)" : "");
     if (!r.points.length) {
       return [{ type: "warn", text: "ไม่มีข้อมูลของวันที่ " + label + " ในรายการ วันที่ที่มี: " +
         keys.map(function (k) { return fmtDay(keyToDay(k)) + " (" + r.days[k] + " แถว)"; }).join(", ") +
-        " เปลี่ยนวันที่ด้านบน หรือเอาเครื่องหมายหน้า \"แสดงเฉพาะวันที่\" ออกเพื่อแสดงทุกวัน" }];
+        " เปลี่ยนวันที่ด้านบน หรือเอาเครื่องหมายหน้า \"แสดงเฉพาะเวรวันที่\" ออกเพื่อแสดงทุกวัน" }];
     }
-    return [{ type: "ok", text: "แสดงเฉพาะวันที่ " + label + " " + r.points.length + " จุด" +
+    return [{ type: "ok", text: "แสดงเฉพาะเวรวันที่ " + label + " " + r.points.length + " จุด" +
       (r.skipped ? " (ไม่แสดง " + r.skipped + " แถวของวันอื่น)" : "") }];
   }
 
@@ -1110,8 +1126,8 @@
     });
     window.addEventListener("resize", function () { if (map) map.resize(); });
 
-    var t = todayObj();
-    $("dayPick").value = t.y + "-" + pad2(t.m) + "-" + pad2(t.d);   // เปิดหน้าทุกครั้ง = วันนี้
+    var t = shiftToday();
+    $("dayPick").value = t.y + "-" + pad2(t.m) + "-" + pad2(t.d);   // เปิดหน้าทุกครั้ง = เวรปัจจุบัน (ก่อนตัดเวร = เมื่อวาน)
     var r = parseCurrent();
     state.points = r.points;
     state.header = r.header;

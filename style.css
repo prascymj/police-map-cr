@@ -238,3 +238,13 @@ button.pp-btn { font: inherit; font-weight: 600; background: #fff; cursor: point
 .dayrow .check input { accent-color: var(--accent); }
 .dayrow input[type="date"] { width: auto; padding: 5px 8px; }
 .dayrow .hint { margin: 0; flex-basis: 100%; font-size: .78rem; }
+
+/* คำอธิบายพับเก็บไว้ กดเปิดเมื่อต้องการ */
+details.help { margin: 4px 0 8px; }
+details.help > summary, .foot summary {
+  cursor: pointer; font-size: .82rem; color: var(--muted); list-style-position: inside; width: fit-content;
+}
+details.help > summary:hover, .foot summary:hover { color: var(--accent); }
+details.help[open] > summary { margin-bottom: 4px; }
+details.help .hint, details.help .note { margin: 0 0 6px; }
+.foot details[open] summary { margin-bottom: 2px; }
