@@ -896,6 +896,23 @@
       (r && r.none ? "เส้นตรง (ไม่พบทางถนน)" : roadState.busy ? "เส้นตรง กำลังคำนวณถนน" : "เส้นตรง") + "</span>";
   }
 
+  // สภ. วันที่ เวลา ของจุด (ถ้าช่องเวลามีวันที่ซ้ำอยู่ด้านหน้า ตัดออก) noDate = ไม่เอาวันที่ (ใบเส้นทางเป็นเวรเดียวกันอยู่แล้ว)
+  function pointSummary(p, noDate) {
+    var parts = [];
+    H_SUMMARY.forEach(function (re, k) {
+      var f = p.info.filter(function (x) { return re.test(x.k); })[0];
+      var v = f ? f.v : "";
+      parts.forEach(function (q) { if (v.indexOf(q + " ") === 0) v = v.slice(q.length + 1); });
+      if (v && k === 2) v += afterMidnight(p, v);
+      if (v && parts.indexOf(v) < 0) parts.push(v);
+    });
+    if (noDate) {
+      var f = p.info.filter(function (x) { return H_SUMMARY[1].test(x.k) && !H_SUMMARY[2].test(x.k); })[0];
+      if (f) parts = parts.filter(function (v) { return v !== f.v; });
+    }
+    return parts.join(" ");
+  }
+
   // ระยะที่ใช้เรียง: ระยะทางถนน ถ้ายังไม่มีใช้ระยะเส้นตรง
   function sortKm(p) { var r = roadOf(p); return r && !r.none ? r.km : p.km; }
   var nameCmp = typeof Intl !== "undefined" && Intl.Collator ? new Intl.Collator("th").compare : function (a, b) { return a < b ? -1 : a > b ? 1 : 0; };
@@ -932,16 +949,7 @@
     order.forEach(function (i) {
       var p = state.points[i];
       var s = selNo(i);
-      // สภ. วันที่ เวลา (ถ้าช่องเวลามีวันที่ซ้ำอยู่ด้านหน้า ตัดออก)
-      var parts = [];
-      H_SUMMARY.forEach(function (re) {
-        var f = p.info.filter(function (x) { return re.test(x.k); })[0];
-        var v = f ? f.v : "";
-        parts.forEach(function (q) { if (v.indexOf(q + " ") === 0) v = v.slice(q.length + 1); });
-        if (v && re === H_SUMMARY[2]) v += afterMidnight(p, v);
-        if (v && parts.indexOf(v) < 0) parts.push(v);
-      });
-      var summary = parts.join(" ");
+      var summary = pointSummary(p);
       rows.push('<tr data-i="' + i + '"' + (s ? ' class="picked"' : "") + '>' +
         '<td class="c-sel"><label class="pick" title="เลือกไปตรวจ"><input type="checkbox" data-pick="' + i + '"' + (s ? " checked" : "") +
           ' aria-label="เลือกตรวจ ' + esc(p.name) + '"></label></td>' +
@@ -981,22 +989,26 @@
     }
   }
 
-  // รายการจุดที่เลือก พร้อมระยะทางถนนและเวลาแต่ละช่วง (คิดจาก ภ.จว. ตามลำดับที่เลือก) และผลรวม
+  // ใบเส้นทาง: ยอดรวมด้านบน แล้วแต่ละจุดเรียงตามลำดับที่ไป ระยะชิดขวา = ระยะจากจุดก่อนหน้า ปิดท้ายด้วยกลับ ภ.จว.
   function visitHtml() {
     var r = loopRes(), n = state.sel.length;
-    var items = state.sel.map(function (i, k) {
+    var legCell = function (k) {
       var leg = r ? r.legs[k] : null;
-      return "<li><b>" + esc(state.points[i].name) + "</b>" +
-        (leg ? '<span class="leg">' + fmtLeg(leg) + (k ? " จากจุดที่ " + k : " จาก ภ.จว.") + "</span>" : "") + "</li>";
-    }).join("");
-    var sum = "";
-    if (r) {
-      var go = r.legs.slice(0, n).reduce(function (a, l) { return { km: a.km + l.km, min: a.min + l.min }; }, { km: 0, min: 0 });
-      sum = '<p class="visitsum">รวมไป ' + n + " จุด <b>" + fmtLeg(go) + "</b> กลับ ภ.จว. " + fmtLeg(r.legs[n]) +
-        " รวมทั้งวง " + fmtLeg(r) + "</p>";
-    } else if (routeState.busy) sum = '<p class="visitsum">กำลังคำนวณระยะทางและเวลา</p>';
-    else if (routeState.err) sum = '<p class="visitsum err">' + esc(routeState.err) + "</p>";
-    return '<span class="visitcount">เลือกไว้ ' + n + ' จุด</span><ol class="visitlist">' + items + "</ol>" + sum;
+      return '<span class="vs-leg">' + (leg ? leg.km.toFixed(1) + " กม.<small>" + fmtMin(leg.min) + "</small>" : "") + "</span>";
+    };
+    var rows = state.sel.map(function (i, k) {
+      var p = state.points[i], sum = pointSummary(p, true);
+      return '<li><span class="vs-no">' + (k + 1) + '</span><span class="vs-name">' + esc(p.name) +
+        '<small>หมุด ' + (i + 1) + (sum ? " " + esc(sum) : "") + "</small></span>" + legCell(k) + "</li>";
+    });
+    rows.push('<li class="vs-hq"><span class="vs-no">ภ</span><span class="vs-name">กลับ ' + esc(state.hq.name) + "</span>" + legCell(n) + "</li>");
+    var head = '<div class="vs-head"><span>' + n + " จุด ไป-กลับ ภ.จว.</span>" +
+      (r ? "<b>" + r.km.toFixed(1) + " กม.<small>" + fmtMin(r.min) + "</small></b>" : "") + "</div>";
+    var foot = r ? '<p class="vs-foot">ระยะทางถนนจากจุดก่อนหน้า เวลาไม่รวมสภาพจราจร</p>'
+      : routeState.busy ? '<p class="vs-foot">กำลังคำนวณระยะทางและเวลา</p>'
+      : routeState.err ? '<p class="vs-foot err">' + esc(routeState.err) + "</p>" : "";
+    return head + '<ol class="vs-list"><li class="vs-hq"><span class="vs-no">ภ</span><span class="vs-name">ออกจาก ' + esc(state.hq.name) +
+      "</span></li>" + rows.join("") + "</ol>" + foot;
   }
 
   function refresh(fit) {

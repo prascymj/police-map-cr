@@ -55,8 +55,8 @@ body {
 .roadstatus:empty { display: none; }
 .roadstatus span { display: block; }
 .roadstatus .note { color: var(--muted); font-size: .75rem; margin: 2px 0 0; }
-.roadstatus .busy, .visitsum.busy { color: var(--muted); }
-.roadstatus .err, .visitsum.err { color: var(--err-text); }
+.roadstatus .busy { color: var(--muted); }
+.roadstatus .err { color: var(--err-text); }
 
 /* หัวตารางกดเรียงได้ ลูกศรวาดด้วยเส้นขอบ */
 th[data-sort] { padding: 0; }
@@ -75,11 +75,20 @@ th[data-sort="dist"] .sortbtn { justify-content: flex-end; }
 th[data-sort="no"] .sortbtn { padding-left: 2px; padding-right: 2px; }
 
 /* รายการจุดที่เลือกพร้อมระยะ */
-.visitcount { display: block; font-weight: 600; }
-.visitlist { margin: 4px 0 0; padding-left: 1.4em; }
-.visitlist li { margin: 2px 0; }
-.visitlist .leg { display: block; color: var(--muted); font-size: .8rem; }
-.visitsum { margin: 6px 0 0; font-size: .85rem; }
+/* ใบเส้นทางของจุดที่เลือก */
+.vs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 600; margin: 2px 0 6px; }
+.vs-head b { font-size: 1.05rem; color: var(--go); white-space: nowrap; text-align: right; }
+.vs-head small, .vs-leg small { display: block; font-size: .75rem; font-weight: 400; color: var(--muted); }
+.vs-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--go); }
+.vs-list li { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.vs-no { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; background: var(--go); color: #fff; font-size: .75rem; font-weight: 700; }
+.vs-hq .vs-no { background: var(--hq); }
+.vs-hq .vs-name { color: var(--muted); }
+.vs-name { font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }
+.vs-name small { display: block; font-size: .75rem; font-weight: 400; color: var(--muted); }
+.vs-leg { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vs-foot { margin: 4px 0 0; font-size: .75rem; color: var(--muted); }
+.vs-foot.err { color: var(--err-text); }
 
 .hint, .note { color: var(--muted); font-size: .85rem; margin: 0 0 8px; }
 code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
