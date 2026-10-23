@@ -50,20 +50,29 @@ body {
 .mapcol { position: relative; min-height: 420px; display: flex; flex-direction: column; }
 #map { position: relative; flex: 1; min-height: 0; }
 
-/* ใต้แผนที่: เลือกการแสดงผล */
-.viewbar { padding: 8px 12px; border-top: 1px solid var(--border); background: var(--surface); }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-.seg button { border: 0; border-radius: 0; justify-content: center; text-align: center; padding: 8px 6px; border-right: 1px solid var(--border); background: var(--surface); line-height: 1.25; }
-.seg button:last-child { border-right: 0; }
-.seg button[aria-pressed="true"] { color: #fff; font-weight: 600; }
-.seg .v-line[aria-pressed="true"] { background: #5b6577; }
-.seg .v-star[aria-pressed="true"] { background: #0b57d0; }
-.seg .v-loop[aria-pressed="true"] { background: #7b1fa2; }
-.viewstatus { font-size: .85rem; margin-top: 6px; color: var(--text); overflow-wrap: anywhere; }
-.viewstatus:empty { display: none; }
-.viewstatus .note { display: block; color: var(--muted); font-size: .75rem; margin-top: 4px; }
-.viewstatus .busy, .visitsum.busy { color: var(--muted); }
-.viewstatus .err, .visitsum.err { color: var(--err-text); }
+/* สถานะระยะทางถนน (ใต้ตาราง) */
+.roadstatus { font-size: .85rem; margin: 6px 0 0; overflow-wrap: anywhere; }
+.roadstatus:empty { display: none; }
+.roadstatus span { display: block; }
+.roadstatus .note { color: var(--muted); font-size: .75rem; margin: 2px 0 0; }
+.roadstatus .busy, .visitsum.busy { color: var(--muted); }
+.roadstatus .err, .visitsum.err { color: var(--err-text); }
+
+/* หัวตารางกดเรียงได้ ลูกศรวาดด้วยเส้นขอบ */
+th[data-sort] { padding: 0; }
+.sortbtn {
+  width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; color: inherit;
+  font: inherit; font-weight: 600; padding: 8px 6px; gap: 4px; cursor: pointer;
+}
+.sortbtn::after {
+  content: ""; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid currentColor; opacity: .3;
+}
+th[aria-sort="ascending"] .sortbtn, th[aria-sort="descending"] .sortbtn { color: var(--accent); }
+th[aria-sort="ascending"] .sortbtn::after { border-top: 0; border-bottom: 5px solid currentColor; opacity: 1; }
+th[aria-sort="descending"] .sortbtn::after { opacity: 1; }
+th[data-sort="dist"] .sortbtn { justify-content: flex-end; }
+th[data-sort="no"] .sortbtn { padding-left: 2px; padding-right: 2px; }
 
 /* รายการจุดที่เลือกพร้อมระยะ */
 .visitcount { display: block; font-weight: 600; }
@@ -190,8 +199,7 @@ button.pp-btn { font: inherit; font-weight: 600; background: #fff; cursor: point
   /* มือถือ มีจุดแล้ว: แผนที่ > วันที่และสรุป > จุดที่เลือก > รายการจุด > เครื่องมือเส้นทาง > นำเข้าข้อมูล > ตั้งค่า */
   .mapcol { order: -1; min-height: 0; }
   #map { flex: none; height: 55vh; min-height: 300px; }
-  .viewbar { padding: 8px 16px; }
-  .seg button { min-height: 44px; font-size: .85rem; }
+  .sortbtn { min-height: 40px; padding: 8px 4px; }
   .blk-day { order: 1; }
   .blk-visit { order: 2; }
   .blk-list { order: 3; }

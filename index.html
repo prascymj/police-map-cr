@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <header class="topbar">
@@ -27,7 +27,8 @@
       <p class="hint">
         ทำได้ 2 แบบ (ไฟล์และข้อความอ่านในเครื่องนี้ ไม่ถูกอัปโหลด)
         <b>ก.</b> กด <b>นำเข้าไฟล์ Excel</b> แล้วเลือกไฟล์จุดตรวจ (.xlsx)
-        <b>ข.</b> คัดลอกข้อความทั้งหมดจาก Excel (เลือกทั้งตาราง แล้ว Ctrl+C) มาวางในช่องด้านล่าง ปักหมุดให้ทันที
+        <b>ข.</b> พิมพ์หรือวางในช่องด้านล่าง บรรทัดละจุด แค่ <code>ละติจูด, ลองจิจูด</code> ก็พอ (ต่อท้ายด้วยชื่อจุดได้)
+        หรือคัดลอกทั้งตารางจาก Excel มาวางก็ได้ ปักหมุดให้ทันที
         จะมีหรือไม่มีแถวหัวตารางก็ได้ พิกัดแบบ <code>20.25697N, 100.41035E</code> หรือ <code>20&deg;15'25.1"N</code> ก็อ่านได้
       </p>
       <div class="row">
@@ -57,6 +58,7 @@
         <div id="visitInfo" class="visitinfo"></div>
         <div class="row">
           <a id="btnVisit" class="button go" target="_blank" rel="noopener" aria-disabled="true">นำทางไปจุดที่เลือก</a>
+          <button id="btnOrder" hidden>จัดลำดับให้ระยะรวมสั้นที่สุด</button>
           <button id="btnSelClear" class="ghost" hidden>ล้างที่เลือก</button>
         </div>
       </div>
@@ -67,15 +69,16 @@
         <table id="table">
           <colgroup><col class="w-sel"><col class="w-no"><col><col class="w-dist"><col class="w-act"></colgroup>
           <thead>
-            <tr><th>ตรวจ</th><th>#</th><th>จุด</th><th id="thRoad">ระยะ</th><th></th></tr>
+            <tr><th>ตรวจ</th><th data-sort="no" aria-sort="ascending"><button type="button" class="sortbtn">#</button></th><th data-sort="name" aria-sort="none"><button type="button" class="sortbtn">จุด</button></th><th data-sort="dist" aria-sort="none"><button type="button" class="sortbtn">ระยะ</button></th><th></th></tr>
           </thead>
           <tbody></tbody>
         </table>
         <p id="empty" class="empty">ยังไม่มีจุด</p>
       </div>
+      <div id="roadStatus" class="roadstatus" aria-live="polite"></div>
       <p class="note">
         แตะช่อง "ตรวจ" หรือปุ่ม "เลือกตรวจจุดนี้" ในหมุด เพื่อเลือกจุดที่จะไป (ลำดับที่แตะ = ลำดับที่ไป) แล้วกด "นำทางไปจุดที่เลือก"
-        แตะแถวในตารางหรือแตะหมุดบนแผนที่เพื่อดูรายละเอียด
+        แตะหัวคอลัมน์ "#", "จุด" หรือ "ระยะ" เพื่อเรียงรายการ (แตะซ้ำเพื่อกลับด้าน) แตะแถวในตารางหรือแตะหมุดบนแผนที่เพื่อดูรายละเอียด
       </p>
       </div>
 
@@ -95,14 +98,6 @@
 
     <section class="mapcol">
       <div id="map" role="region" aria-label="แผนที่"></div>
-      <div class="viewbar">
-        <div class="seg" role="group" aria-label="การแสดงผลบนแผนที่">
-          <button data-view="line" class="v-line" aria-pressed="true">เส้นตรง</button>
-          <button data-view="star" class="v-star" aria-pressed="false">ไปแต่ละจุดที่เลือก</button>
-          <button data-view="loop" class="v-loop" aria-pressed="false">วนตรวจจุดที่เลือก</button>
-        </div>
-        <div id="viewStatus" class="viewstatus" aria-live="polite"></div>
-      </div>
     </section>
   </main>
 
@@ -119,7 +114,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
-  <script src="config.js?v=13"></script>
-  <script src="app.js?v=13"></script>
+  <script src="config.js?v=15"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

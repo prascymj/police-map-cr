@@ -8,7 +8,7 @@
   var STORE_HQ = "policemap.hq";
 
   var $ = function (id) { return document.getElementById(id); };
-  var state = { hq: loadHq(), points: [], header: null, sel: [], view: "line" };
+  var state = { hq: loadHq(), points: [], header: null, sel: [], sort: { key: "no", dir: 1 } };
   var map = null;
 
   // ---------- storage (ใช้ได้ก็ใช้ ใช้ไม่ได้ก็ข้าม) ----------
@@ -412,11 +412,10 @@
   }
 
   // ---------- ระยะทางถนนและเวลา ของจุดที่เลือกตรวจ (OSRM) ----------
-  // วนตรวจ = ภ.จว. > จุดที่เลือกตามลำดับที่แตะ > กลับ ภ.จว. (ผลนี้ใช้แสดงระยะในแถบจุดที่เลือกด้วย)
-  // ไปแต่ละจุด = ภ.จว. > จุดที่เลือกแต่ละจุด  พิกัดเฉพาะจุดที่เลือกถูกส่งไปเซิร์ฟเวอร์ OSRM เพื่อคำนวณ
+  // ภ.จว. > จุดที่เลือกตามลำดับ > กลับ ภ.จว. ใช้แสดงระยะแต่ละช่วงในแถบจุดที่เลือก
+  // พิกัดเฉพาะจุดที่เลือกถูกส่งไปเซิร์ฟเวอร์ OSRM เพื่อคำนวณ
   var OSRM_URL = "https://router.project-osrm.org";   // เปลี่ยนเป็นเซิร์ฟเวอร์ OSRM ของหน่วยงานได้
   var OSRM_GAP_MS = 1100;                              // นโยบายเซิร์ฟเวอร์สาธิต OSRM: ไม่เกิน 1 ครั้งต่อวินาที
-  var VIEW_COLOR = { star: "#0b57d0", loop: "#7b1fa2" };
   var routeCache = {}, osrmQueue = Promise.resolve(), routeJob = 0, routeTimer = null;
   var routeState = { busy: false, err: "" };
 
@@ -482,7 +481,7 @@
     }, Promise.resolve()).catch(function (e) {
       if (job === roadJob) roadState.err = "คำนวณระยะทางถนนไม่สำเร็จ (" + (e && e.message ? e.message : e) + ") จึงแสดงระยะเส้นตรง";
     }).then(function () {
-      if (job === roadJob) { roadState.busy = false; afterRoute(); }
+      if (job === roadJob) { roadState.busy = false; if (orderWaitRoad) applySort(); afterRoute(); }
     });
   }
 
@@ -495,22 +494,12 @@
   function selPts() { return state.sel.map(function (i) { return state.points[i]; }); }
   // ผลของชุดที่เลือกปัจจุบัน (ถ้าเปลี่ยนการเลือกหรือ ภ.จว. จะยังไม่มีผลจนกว่าคำนวณใหม่เสร็จ)
   function loopRes() { return state.sel.length ? routeCache[coordKey([state.hq].concat(selPts(), [state.hq]))] || null : null; }
-  function starRes(i) { return routeCache[coordKey([state.hq, state.points[i]])] || null; }
-  // ระยะถนนของจุดที่ i ตามมุมมองปัจจุบัน
-  function legFor(i) {
-    var k = state.sel.indexOf(i);
-    if (k < 0) return null;
-    if (state.view === "star") return starRes(i);
-    if (state.view === "loop") { var r = loopRes(); return r ? r.legs[k] : null; }
-    return null;
-  }
 
   function scheduleRoutes() {
     clearTimeout(routeTimer);
     var job = ++routeJob;
     routeState.err = "";
     var need = state.sel.length ? [[state.hq].concat(selPts(), [state.hq])] : [];
-    if (state.view === "star") selPts().forEach(function (p) { need.push([state.hq, p]); });
     // คำนวณไว้แล้วทั้งหมด (เช่น สลับมุมมองกลับมา) แสดงผลทันที ไม่ต้องรอ
     routeState.busy = need.some(function (c) { return !routeCache[coordKey(c)]; });
     afterRoute();
@@ -518,8 +507,7 @@
     // รอให้แตะเลือกจุดเสร็จก่อน ไม่ส่งคำขอทุกครั้งที่แตะ
     routeTimer = setTimeout(function () {
       var hq = state.hq, pts = selPts();
-      var tasks = [function () { return osrmRoute([hq].concat(pts, [hq])); }];
-      if (state.view === "star") pts.forEach(function (p) { tasks.push(function () { return osrmRoute([hq, p]); }); });
+      var tasks = pts.length ? [function () { return osrmRoute([hq].concat(pts, [hq])); }] : [];
       tasks.reduce(function (chain, t) {
         return chain.then(function () {
           if (job !== routeJob) return;
@@ -535,58 +523,52 @@
 
   function afterRoute() {
     renderTable();
-    renderView();
-    if (map) map.render(state.hq, state.points, routeLines());
+    renderRoadStatus();
+    if (map) map.render(state.hq, state.points, null);
   }
 
-  // เส้นบนแผนที่ตามมุมมอง: null = เส้นตรงประจาก ภ.จว. ไปทุกจุด
-  function routeLines() {
-    if (state.view === "line") return null;
-    var lines = [];
-    if (state.view === "loop") {
-      var r = loopRes();
-      if (r) lines.push({ path: r.path, color: VIEW_COLOR.loop, label: "วนตรวจ " + state.sel.length + " จุด รวม " + fmtLeg(r) });
-    } else {
-      state.sel.forEach(function (i, k) {
-        var s = starRes(i);
-        if (s) lines.push({ path: s.path, color: VIEW_COLOR.star, label: (k + 1) + ") " + state.points[i].name + ": " + fmtLeg(s) });
-      });
+  // สถานะการคำนวณระยะทางถนนของตาราง (ใต้ตาราง)
+  function renderRoadStatus() {
+    var html = "";
+    if (state.points.length) {
+      if (roadState.busy) html += '<span class="busy">กำลังคำนวณระยะทางถนนจาก ภ.จว.</span>';
+      if (roadState.err) html += '<span class="err">' + esc(roadState.err) + "</span>";
+      html += '<span class="note">แผนที่แสดงเส้นตรงจาก ภ.จว. ไปทุกจุด ระยะในตารางเป็นระยะทางถนนและเวลาจาก ภ.จว. คำนวณโดย OSRM ' +
+        "(ส่งพิกัดของจุดในรายการไปคำนวณ) เวลาเป็นค่าประมาณสำหรับรถยนต์ ไม่รวมสภาพจราจร</span>";
     }
-    return lines;
+    $("roadStatus").innerHTML = html;
   }
 
-  var VIEW_NOTE = "ระยะทางถนนคำนวณโดย OSRM (ส่งพิกัดเฉพาะจุดที่เลือกไปคำนวณ) เวลาเป็นค่าประมาณสำหรับรถยนต์ ไม่รวมสภาพจราจร";
-
-  function renderView() {
-    Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
-      b.setAttribute("aria-pressed", b.getAttribute("data-view") === state.view ? "true" : "false");
+  // ---------- จัดลำดับจุดที่เลือกให้ระยะรวมสั้นที่สุด (OSRM trip) ----------
+  // ภ.จว. > จุดที่เลือกทุกจุด > กลับ ภ.จว. ให้ OSRM หาลำดับที่ใช้ระยะถนนรวมน้อยที่สุด
+  var orderBusy = false;
+  function optimizeOrder() {
+    if (orderBusy || state.sel.length < 3) return;
+    var sel = state.sel.slice(), hq = state.hq;
+    var q = [hq].concat(sel.map(function (i) { return state.points[i]; }))
+      .map(function (x) { return x.lng.toFixed(6) + "," + x.lat.toFixed(6); }).join(";");
+    orderBusy = true; renderTable();
+    var p = osrmQueue.then(function () {
+      return fetch(OSRM_URL + "/trip/v1/driving/" + q + "?source=first&roundtrip=true&overview=false")
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
     });
-    var el = $("viewStatus"), v = state.view, n = state.sel.length, html = "";
-    if (v === "line") {
-      html = "แผนที่แสดงเส้นตรงจาก ภ.จว. ไปทุกจุด ระยะในตารางเป็นระยะทางถนนและเวลาจาก ภ.จว." +
-        (roadState.busy ? '<br><span class="busy">กำลังคำนวณระยะทางถนน</span>' : "") +
-        (roadState.err ? '<br><span class="err">' + esc(roadState.err) + "</span>" : "") +
-        (state.points.length ? '<span class="note">ระยะทางถนนคำนวณโดย OSRM (ส่งพิกัดของจุดในรายการไปคำนวณ) เวลาไม่รวมสภาพจราจร</span>' : "");
-    }
-    else if (!n) html = "เลือกจุดตรวจก่อน (ติ๊กช่อง \"ตรวจ\" ในรายการ หรือแตะหมุดแล้วกด \"เลือกตรวจจุดนี้\")";
-    else if (v === "loop") {
-      var r = loopRes();
-      html = r
-        ? "<b>วนตรวจ " + n + " จุด รวม " + fmtLeg(r) + "</b> (ภ.จว. > " +
-          state.sel.map(function (i, k) { return (k + 1) + ") " + esc(state.points[i].name); }).join(" > ") + " > กลับ ภ.จว.)"
-        : "";
-    } else {
-      html = "<b>จาก ภ.จว. ไปแต่ละจุดที่เลือก (ทางถนน)</b><br>" + state.sel.map(function (i, k) {
-        var s = starRes(i);
-        return (k + 1) + ") " + esc(state.points[i].name) + ": " + (s ? fmtLeg(s) : "...");
-      }).join("<br>");
-    }
-    if (v !== "line" && n) {
-      if (routeState.busy) html += (html ? "<br>" : "") + '<span class="busy">กำลังคำนวณระยะทางถนน</span>';
-      if (routeState.err) html += (html ? "<br>" : "") + '<span class="err">' + esc(routeState.err) + "</span>";
-      html += '<span class="note">' + VIEW_NOTE + "</span>";
-    }
-    el.innerHTML = html;
+    osrmQueue = p.catch(function () {}).then(function () { return new Promise(function (r) { setTimeout(r, OSRM_GAP_MS); }); });
+    p.then(function (j) {
+      if (j.code !== "Ok" || !j.waypoints) throw new Error(j.message || j.code || "NoTrip");
+      // ชุดที่เลือกเปลี่ยนระหว่างรอผล: ไม่จัดลำดับทับ
+      if (state.sel.join(",") !== sel.join(",")) return;
+      // waypoints[k] = พิกัดที่ k ที่ส่งไป, waypoint_index = ลำดับในเส้นทาง (0 = ภ.จว.)
+      state.sel = sel.map(function (i, k) { return { i: i, at: j.waypoints[k + 1].waypoint_index }; })
+        .sort(function (x, y) { return x.at - y.at; }).map(function (x) { return x.i; });
+      saveSel();
+      if (map) map.select(state.sel);
+      showMsgs([{ type: "ok", text: state.sel.join(",") === sel.join(",")
+        ? "ลำดับที่เลือกไว้ใช้ระยะรวมสั้นที่สุดอยู่แล้ว"
+        : "จัดลำดับจุดที่เลือกใหม่ให้ระยะรวมสั้นที่สุดแล้ว (ไป-กลับ ภ.จว.)" }]);
+      scheduleRoutes();
+    }).catch(function (e) {
+      showMsgs([{ type: "err", text: "จัดลำดับไม่สำเร็จ (" + (e && e.message ? e.message : e) + ") ลำดับยังเป็นตามที่แตะเลือก" }]);
+    }).then(function () { orderBusy = false; renderTable(); });
   }
 
   // หมุดวาดใหม่เฉพาะเมื่อจุดหรือ ภ.จว. เปลี่ยน ป๊อปอัปที่เปิดอยู่จึงไม่ปิดเองเมื่อเลือกจุดตรวจ
@@ -875,24 +857,49 @@
     });
   }
 
-  // ช่องระยะ: วนตรวจ = ช่วงจากจุดก่อนหน้า, อื่น ๆ = ระยะทางถนนจาก ภ.จว. ถ้ายังไม่ได้ผลหรือคำนวณไม่ได้ ใช้ระยะเส้นตรง
-  function distCell(i, p) {
-    var leg = state.view === "loop" ? legFor(i) : null;
-    if (leg) {
-      var k = state.sel.indexOf(i);
-      return "<b>" + leg.km.toFixed(1) + ' กม.</b><span class="sub">' + fmtMin(leg.min) + (k ? " จากจุดที่ " + k : " จาก ภ.จว.") + "</span>";
-    }
+  // ช่องระยะ: ระยะทางถนนจาก ภ.จว. ถ้ายังไม่ได้ผลหรือคำนวณไม่ได้ ใช้ระยะเส้นตรง
+  function distCell(p) {
     var r = roadOf(p);
     if (r && !r.none) return "<b>" + r.km.toFixed(1) + ' กม.</b><span class="sub">' + fmtMin(r.min) + "</span>";
     return p.km.toFixed(1) + ' กม.<span class="sub">' +
       (r && r.none ? "เส้นตรง (ไม่พบทางถนน)" : roadState.busy ? "เส้นตรง กำลังคำนวณถนน" : "เส้นตรง") + "</span>";
   }
 
+  // ระยะที่ใช้เรียง: ระยะทางถนน ถ้ายังไม่มีใช้ระยะเส้นตรง
+  function sortKm(p) { var r = roadOf(p); return r && !r.none ? r.km : p.km; }
+  var nameCmp = typeof Intl !== "undefined" && Intl.Collator ? new Intl.Collator("th").compare : function (a, b) { return a < b ? -1 : a > b ? 1 : 0; };
+  // index ของจุดตามการเรียงที่เลือก (ค่าเท่ากันเรียงตามลำดับในไฟล์) เลขหมุดยังเป็นลำดับในไฟล์เสมอ
+  function sortedIdx() {
+    var k = state.sort.key, d = state.sort.dir, pts = state.points;
+    return pts.map(function (p, i) { return i; }).sort(function (a, b) {
+      var c = k === "dist" ? sortKm(pts[a]) - sortKm(pts[b]) : k === "name" ? nameCmp(pts[a].name, pts[b].name) : a - b;
+      return c * d || a - b;
+    });
+  }
+  // ลำดับแถวคงที่ จัดใหม่เฉพาะเมื่อแตะหัวคอลัมน์ นำเข้าข้อมูลใหม่ หรือเปลี่ยน ภ.จว.
+  // (เรียงตามระยะก่อนได้ระยะถนน จัดใหม่อีกครั้งเดียวเมื่อได้ระยะถนนครบ) แตะเลือกจุดแล้วแถวไม่ย้ายที่
+  var order = [], orderWaitRoad = false;
+  function applySort() {
+    order = sortedIdx();
+    orderWaitRoad = state.sort.key === "dist" && roadState.busy;
+  }
+  function setSort(key) {
+    state.sort = state.sort.key === key ? { key: key, dir: -state.sort.dir } : { key: key, dir: 1 };
+    applySort();
+    renderTable();
+  }
+
   function renderTable() {
     var tb = document.querySelector("#table tbody");
     var hq = state.hq;
+    Array.prototype.forEach.call(document.querySelectorAll("#table th[data-sort]"), function (th) {
+      var on = th.getAttribute("data-sort") === state.sort.key;
+      th.setAttribute("aria-sort", on ? (state.sort.dir > 0 ? "ascending" : "descending") : "none");
+    });
     var rows = ['<tr class="hq"><td class="c-sel"></td><td class="c-no">ภ</td><td class="c-name"><b>' + esc(hq.name) + '</b><span class="sub">จุดอ้างอิง</span></td><td class="c-dist"></td><td class="c-act"></td></tr>'];
-    state.points.forEach(function (p, i) {
+    if (order.length !== state.points.length) applySort();
+    order.forEach(function (i) {
+      var p = state.points[i];
       var s = selNo(i);
       // สภ. วันที่ เวลา (ถ้าช่องเวลามีวันที่ซ้ำอยู่ด้านหน้า ตัดออก)
       var parts = [];
@@ -912,7 +919,7 @@
         (summary ? '<span class="sub">' + esc(summary) + "</span>" : "") +
         '<span class="sub">ทิศ' + dirName(p.deg) + "</span>" +
         "</td>" +
-        '<td class="c-dist">' + distCell(i, p) + "</td>" +
+        '<td class="c-dist">' + distCell(p) + "</td>" +
         '<td class="c-act"><a class="navbtn" href="' + gmDirFromHereUrl(p) + '" target="_blank" rel="noopener" title="นำทางจากตำแหน่งปัจจุบันใน Google Maps">นำทาง</a></td></tr>');
     });
     tb.innerHTML = rows.join("");
@@ -922,7 +929,10 @@
     var ns = state.sel.length, visit = $("btnVisit");
     $("visitbar").hidden = !state.points.length;
     $("btnSelClear").hidden = !ns;
-    $("visitInfo").innerHTML = ns ? visitHtml() : esc("แตะช่องหน้าจุดที่จะไปตรวจ ตามลำดับที่จะไป (ไม่เกิน " + MAX_VISIT + " จุด)");
+    $("btnOrder").hidden = ns < 3;
+    $("btnOrder").disabled = orderBusy;
+    $("btnOrder").textContent = orderBusy ? "กำลังจัดลำดับ" : "จัดลำดับให้ระยะรวมสั้นที่สุด";
+    $("visitInfo").innerHTML = ns ? visitHtml() : esc("แตะช่องหน้าจุดที่จะไปตรวจ ตามลำดับที่จะไป (ไม่เกิน " + MAX_VISIT + " จุด) เลือกตั้งแต่ 3 จุด จัดลำดับให้ระยะรวมสั้นที่สุดได้");
     if (ns) {
       visit.href = gmVisitUrl(state.sel.map(function (i) { return state.points[i]; }));
       visit.removeAttribute("aria-disabled");
@@ -960,7 +970,8 @@
   function refresh(fit) {
     computeDistances();
     renderTable();
-    if (map) { map.resize(); map.render(state.hq, state.points, routeLines()); if (fit) map.fit(state.hq, state.points); }
+    renderRoadStatus();
+    if (map) { map.resize(); map.render(state.hq, state.points, null); if (fit) map.fit(state.hq, state.points); }
   }
 
   // วันที่ที่ต้องการแสดง (ค่าเริ่มต้น = วันนี้) 0 = ทุกวัน
@@ -995,6 +1006,9 @@
     state.header = r.header;
     restoreSel();   // ชุดจุดเดิม = คงจุดที่เลือกไว้ ชุดใหม่ = ล้างการเลือก
     computeDistances();
+    // ข้อมูลใหม่เริ่มที่ลำดับในไฟล์ แถวจึงไม่สลับที่เองตอนระยะถนนคำนวณเสร็จ
+    state.sort = { key: "no", dir: 1 };
+    applySort();
     var far = state.points.filter(function (p) { return p.km > WARN_KM; });
     far.forEach(function (p) {
       r.msgs.push({ type: "warn", text: "บรรทัด " + p.line + ": \"" + p.name + "\" ห่าง " + p.km.toFixed(0) + " กม. ตรวจว่ากรอกถูกหรือไม่" });
@@ -1014,21 +1028,14 @@
     $("hqLng").value = state.hq.lng;
   }
 
-  // รูปแบบเดียวกับไฟล์ Excel จุดตรวจสัมพันธ์ (ชื่อ เบอร์ และพิกัดเป็นค่าสมมติ ไม่ใช่ข้อมูลจริง)
-  // วันนี้ 5 จุด เมื่อวาน 2 จุด ให้เห็นการกรองเฉพาะวันนี้
+  // ตัวอย่างแบบง่ายที่สุด: บรรทัดละจุด "ละติจูด, ลองจิจูด" (พิกัดโดยประมาณ ไม่ใช่ข้อมูลจริง)
   function sampleText() {
-    var t = fmtDay(todayObj()), y = fmtDay(todayObj(-1));
-    var row = function (a) { return a.join("\t"); };
     return [
-      "# ตัวอย่างข้อมูลสาธิต (ค่าสมมติทั้งหมด ไม่ใช่ข้อมูลจริง)",
-      row(KNOWN_COLS),
-      row([y, "20:00", "สภ.เมืองเชียงราย", "ร.ต.ท. ตัวอย่าง สมมติหก", "รอง สว.(ป.)", "000-000-0006", "ตัวอย่าง (เมื่อวาน) หอนาฬิกา", "19.9073", "99.8310"]),
-      row([y, "21:00", "สภ.แม่จัน", "ร.ต.อ. ตัวอย่าง สมมติเจ็ด", "รอง สว.(ป.)", "000-000-0007", "ตัวอย่าง (เมื่อวาน) ตลาดแม่จัน", "20.1460", "99.8530"]),
-      row([t, "20:00", "สภ.เมืองเชียงราย", "ร.ต.ท. ตัวอย่าง สมมติหนึ่ง", "รอง สว.(ป.)", "000-000-0001", "ตัวอย่าง ร้านค้าตัวเมือง", "19.9100", "99.8400"]),
-      row([t, "21:00", "สภ.แม่สาย", "ร.ต.อ. ตัวอย่าง สมมติสอง", "รอง สว.(ป.)", "000-000-0002", "ตัวอย่าง ตลาดแม่สาย", "20.4270", "99.8830"]),
-      row([t, "21:30", "สภ.เชียงแสน", "ร.ต.ท. ตัวอย่าง สมมติสาม", "รอง สว.(ป.)", "000-000-0003", "ตัวอย่าง ท่าเรือเชียงแสน", "20.2730", "100.0840"]),
-      row([t, "22:00", "สภ.แม่สรวย", "ร.ต.ต. ตัวอย่าง สมมติสี่", "รอง สว.(ป.)", "000-000-0004", "ตัวอย่าง ปั๊มน้ำมันแม่สรวย", "19.6600", "99.5300"]),
-      row([t, "22:30", "สภ.เทิง", "ร.ต.อ. ตัวอย่าง สมมติห้า", "รอง สว.(ป.)", "000-000-0005", "ตัวอย่าง ร้านสะดวกซื้อเทิง", "19.8900", "100.2950"])
+      "19.9100, 99.8400",
+      "20.4270, 99.8830",
+      "20.2730, 100.0840",
+      "19.6600, 99.5300",
+      "19.8900, 100.2950"
     ].join("\n");
   }
 
@@ -1049,7 +1056,7 @@
     $("btnClear").addEventListener("click", function () {
       $("input").value = ""; storeDel(STORE_INPUT); storeDel(STORE_SEL);
       state.points = []; state.header = null; state.sel = [];
-      showMsgs([]); refresh(true); scheduleRoutes();
+      showMsgs([]); applySort(); refresh(true); scheduleRoutes();
     });
     $("fileImport").addEventListener("change", function (e) {
       var f = e.target.files[0]; if (!f) return;
@@ -1092,12 +1099,14 @@
       state.hq = { name: $("hqName").value.trim() || DEFAULT_HQ.name, lat: lat, lng: lng };
       storeSet(STORE_HQ, JSON.stringify(state.hq));
       showMsgs([{ type: "ok", text: "บันทึกจุดอ้างอิงแล้ว" }]);
+      computeDistances(); roadState.busy = state.sort.key === "dist"; applySort();
       refresh(true); scheduleRoutes(); scheduleRoad();
     });
     $("btnHqReset").addEventListener("click", function () {
       storeDel(STORE_HQ);
       state.hq = { name: DEFAULT_HQ.name, lat: DEFAULT_HQ.lat, lng: DEFAULT_HQ.lng };
-      fillHqForm(); refresh(true); scheduleRoutes(); scheduleRoad();
+      fillHqForm(); computeDistances(); roadState.busy = state.sort.key === "dist"; applySort();
+      refresh(true); scheduleRoutes(); scheduleRoad();
     });
     window.addEventListener("resize", function () { if (map) map.resize(); });
 
@@ -1107,12 +1116,13 @@
     state.points = r.points;
     state.header = r.header;
     restoreSel();
+    applySort();
     if ($("input").value.trim()) showMsgs(dayMsgs(r));
     initMap();
-    // มุมมองบนแผนที่: เริ่มที่เส้นตรงทุกครั้ง
-    Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
-      b.addEventListener("click", function () { state.view = b.getAttribute("data-view"); scheduleRoutes(); });
+    Array.prototype.forEach.call(document.querySelectorAll("#table th[data-sort]"), function (th) {
+      th.querySelector("button").addEventListener("click", function () { setSort(th.getAttribute("data-sort")); });
     });
+    $("btnOrder").addEventListener("click", optimizeOrder);
     scheduleRoutes();
     scheduleRoad();
   });
