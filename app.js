@@ -10,7 +10,7 @@
   var STORE_HQ = "policemap.hq";
 
   var $ = function (id) { return document.getElementById(id); };
-  var state = { hq: loadHq(), points: [], header: null, sel: [], sort: { key: "no", dir: 1 } };
+  var state = { hq: loadHq(), points: [], header: null, sel: [], selBefore: null, sort: { key: "no", dir: 1 } };
   var map = null;
 
   // ---------- storage (ใช้ได้ก็ใช้ ใช้ไม่ได้ก็ข้าม) ----------
@@ -405,12 +405,17 @@
   var MAX_VISIT = 9;    // ลิงก์ Google Maps: จุดแวะได้ไม่เกิน 9 จุด (ปลายทาง = ภ.จว.)
   var STORE_SEL = "policemap.sel";
   function selSig() { return state.points.map(function (p) { return ll(p) + p.name; }).join("|"); }
-  function saveSel() { storeSet(STORE_SEL, JSON.stringify({ sig: selSig(), sel: state.sel })); }
+  // state.selBefore = ลำดับที่แตะเลือกไว้ก่อนกดจัดลำดับสั้นที่สุด (กดคืนได้) null เมื่อยังไม่ได้จัดหรือเปลี่ยนชุดที่เลือกแล้ว
+  function saveSel() { storeSet(STORE_SEL, JSON.stringify({ sig: selSig(), sel: state.sel, before: state.selBefore })); }
+  function sameSet(a, b) { return !!a && a.length === b.length && a.slice().sort().join(",") === b.slice().sort().join(","); }
   function restoreSel() {
-    state.sel = [];
+    state.sel = []; state.selBefore = null;
     try {
       var s = JSON.parse(storeGet(STORE_SEL) || "null");
-      if (s && s.sig === selSig()) state.sel = s.sel.filter(function (i) { return i >= 0 && i < state.points.length; }).slice(0, MAX_VISIT);
+      if (s && s.sig === selSig()) {
+        state.sel = s.sel.filter(function (i) { return i >= 0 && i < state.points.length; }).slice(0, MAX_VISIT);
+        if (sameSet(s.before, state.sel)) state.selBefore = s.before;
+      }
     } catch (e) { /* ignore */ }
   }
   function selNo(i) { return state.sel.indexOf(i) + 1; }
@@ -421,6 +426,7 @@
       showMsgs([{ type: "warn", text: "เลือกได้ไม่เกิน " + MAX_VISIT + " จุดต่อการนำทาง 1 ครั้ง (ข้อจำกัดของ Google Maps)" }]);
       renderTable(); return;
     } else state.sel.push(i);
+    state.selBefore = null;
     saveSel();
     renderTable();
     if (map) map.select(state.sel);
@@ -556,7 +562,17 @@
   // ---------- จัดลำดับจุดที่เลือกให้ระยะรวมสั้นที่สุด (OSRM trip) ----------
   // ภ.จว. > จุดที่เลือกทุกจุด > กลับ ภ.จว. ให้ OSRM หาลำดับที่ใช้ระยะถนนรวมน้อยที่สุด
   var orderBusy = false;
+  // คืนลำดับตามที่แตะเลือกไว้ก่อนจัดลำดับ
+  function undoOrder() {
+    if (!sameSet(state.selBefore, state.sel)) return;
+    state.sel = state.selBefore; state.selBefore = null;
+    saveSel();
+    if (map) map.select(state.sel);
+    showMsgs([{ type: "ok", text: "กลับไปใช้ลำดับที่เลือกเองแล้ว" }]);
+    scheduleRoutes();
+  }
   function optimizeOrder() {
+    if (state.selBefore) { undoOrder(); return; }
     if (orderBusy || state.sel.length < 3) return;
     var sel = state.sel.slice(), hq = state.hq;
     var q = [hq].concat(sel.map(function (i) { return state.points[i]; }))
@@ -574,14 +590,15 @@
       // waypoints[k] = พิกัดที่ k ที่ส่งไป, waypoint_index = ลำดับในเส้นทาง (0 = ภ.จว.)
       state.sel = sel.map(function (i, k) { return { i: i, at: j.waypoints[k + 1].waypoint_index }; })
         .sort(function (x, y) { return x.at - y.at; }).map(function (x) { return x.i; });
+      if (state.sel.join(",") !== sel.join(",")) state.selBefore = sel;
       saveSel();
       if (map) map.select(state.sel);
       showMsgs([{ type: "ok", text: state.sel.join(",") === sel.join(",")
-        ? "ลำดับที่เลือกไว้ใช้ระยะรวมสั้นที่สุดอยู่แล้ว"
-        : "จัดลำดับจุดที่เลือกใหม่ให้ระยะรวมสั้นที่สุดแล้ว (ไป-กลับ ภ.จว.)" }]);
+        ? "ลำดับที่เลือกเป็นเส้นทางสั้นที่สุดอยู่แล้ว"
+        : "จัดเส้นทางสั้นที่สุดแล้ว (ไป-กลับ ภ.จว.)" }]);
       scheduleRoutes();
     }).catch(function (e) {
-      showMsgs([{ type: "err", text: "จัดลำดับไม่สำเร็จ (" + (e && e.message ? e.message : e) + ") ลำดับยังเป็นตามที่แตะเลือก" }]);
+      showMsgs([{ type: "err", text: "จัดเส้นทางไม่สำเร็จ (" + (e && e.message ? e.message : e) + ") ลำดับยังเป็นตามที่แตะเลือก" }]);
     }).then(function () { orderBusy = false; renderTable(); });
   }
 
@@ -946,7 +963,7 @@
     $("btnSelClear").hidden = !ns;
     $("btnOrder").hidden = ns < 3;
     $("btnOrder").disabled = orderBusy;
-    $("btnOrder").textContent = orderBusy ? "กำลังจัดลำดับ" : "จัดลำดับให้ระยะรวมสั้นที่สุด";
+    $("btnOrder").textContent = orderBusy ? "กำลังจัดเส้นทาง" : state.selBefore ? "กลับไปลำดับที่เลือกเอง" : "จัดเส้นทางสั้นที่สุด";
     $("visitInfo").innerHTML = ns ? visitHtml() : esc("ติ๊กช่อง \"ตรวจ\" หน้าจุดที่จะไป (ไม่เกิน " + MAX_VISIT + " จุด)");
     if (ns) {
       visit.href = gmVisitUrl(state.sel.map(function (i) { return state.points[i]; }));
@@ -1070,7 +1087,7 @@
     $("dayPick").addEventListener("change", function () { $("chkDay").checked = true; plot(); });
     $("btnClear").addEventListener("click", function () {
       $("input").value = ""; storeDel(STORE_INPUT); storeDel(STORE_SEL);
-      state.points = []; state.header = null; state.sel = [];
+      state.points = []; state.header = null; state.sel = []; state.selBefore = null;
       showMsgs([]); applySort(); refresh(true); scheduleRoutes();
     });
     $("fileImport").addEventListener("change", function (e) {
@@ -1098,7 +1115,7 @@
       toggleSel(Number(b.getAttribute("data-sel")));
     }, true);
     $("btnSelClear").addEventListener("click", function () {
-      state.sel = []; saveSel(); renderTable(); if (map) map.select(state.sel); scheduleRoutes();
+      state.sel = []; state.selBefore = null; saveSel(); renderTable(); if (map) map.select(state.sel); scheduleRoutes();
     });
     document.querySelector("#table tbody").addEventListener("click", function (e) {
       if (e.target.closest("a, input, label")) return;

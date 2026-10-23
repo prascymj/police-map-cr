@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <header class="topbar">
@@ -61,7 +61,7 @@
         <div id="visitInfo" class="visitinfo"></div>
         <div class="row">
           <a id="btnVisit" class="button go" target="_blank" rel="noopener" aria-disabled="true">นำทางไปจุดที่เลือก</a>
-          <button id="btnOrder" hidden>จัดลำดับให้ระยะรวมสั้นที่สุด</button>
+          <button id="btnOrder" hidden>จัดเส้นทางสั้นที่สุด</button>
           <button id="btnSelClear" class="ghost" hidden>ล้างที่เลือก</button>
         </div>
       </div>
@@ -87,7 +87,7 @@
       </p>
       <p class="note">
         แผนที่แสดงเส้นตรงจาก ภ.จว. ไปทุกจุด ระยะในตารางเป็นระยะทางถนนและเวลาจาก ภ.จว. คำนวณโดย OSRM เวลาเป็นค่าประมาณสำหรับรถยนต์ ไม่รวมสภาพจราจร
-        เลือกตั้งแต่ 3 จุด กด "จัดลำดับให้ระยะรวมสั้นที่สุด" ได้ (คิดไป-กลับ ภ.จว.)
+        เลือกตั้งแต่ 3 จุด กด "จัดเส้นทางสั้นที่สุด" ได้ (คิดไป-กลับ ภ.จว.) จัดแล้วกด "กลับไปลำดับที่เลือกเอง" เพื่อกลับเป็นลำดับที่แตะเลือกไว้
       </p>
       <p class="note">
         เวรข้ามวัน: ไฟล์ลงวันที่ตามวันเริ่มเวร จุดที่เวลาหลังเที่ยงคืนถึง 06:00 นับรวมในเวรนั้น และมีวันที่จริงกำกับ เช่น "00:30 (24 ต.ค.)"
@@ -131,7 +131,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
-  <script src="config.js?v=18"></script>
-  <script src="app.js?v=18"></script>
+  <script src="config.js?v=20"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>
