@@ -395,15 +395,14 @@
   // ---------- ลิงก์ Google Maps (ไม่ต้องใช้ key) ----------
   function ll(p) { return p.lat.toFixed(6) + "," + p.lng.toFixed(6); }
   function gmPinUrl(p) { return "https://www.google.com/maps/search/?api=1&query=" + ll(p); }
-  // นำทางไปจุดที่เลือกตรวจ: เริ่มจากตำแหน่งปัจจุบัน แวะตามลำดับที่เลือก จบที่จุดสุดท้ายที่เลือก
+  // นำทางไปจุดที่เลือกตรวจ: เริ่มจากตำแหน่งปัจจุบัน แวะทุกจุดตามลำดับที่เลือก แล้วจบที่ ภ.จว.
   function gmVisitUrl(pts) {
-    var last = pts[pts.length - 1];
-    return gmDirFromHereUrl(last) + (pts.length > 1 ? "&waypoints=" + encodeURIComponent(pts.slice(0, -1).map(ll).join("|")) : "");
+    return gmDirFromHereUrl(state.hq) + "&waypoints=" + encodeURIComponent(pts.map(ll).join("|"));
   }
 
   // ---------- เลือกจุดที่จะไปตรวจ ----------
   // state.sel = index ของจุดตามลำดับที่ผู้ใช้แตะเลือก (= ลำดับที่จะไป) เก็บไว้ในเครื่อง กลับมาจากแอปนำทางแล้วยังอยู่
-  var MAX_VISIT = 10;   // ลิงก์ Google Maps: จุดแวะ 9 + ปลายทาง 1
+  var MAX_VISIT = 9;    // ลิงก์ Google Maps: จุดแวะได้ไม่เกิน 9 จุด (ปลายทาง = ภ.จว.)
   var STORE_SEL = "policemap.sel";
   function selSig() { return state.points.map(function (p) { return ll(p) + p.name; }).join("|"); }
   function saveSel() { storeSet(STORE_SEL, JSON.stringify({ sig: selSig(), sel: state.sel })); }
@@ -411,7 +410,7 @@
     state.sel = [];
     try {
       var s = JSON.parse(storeGet(STORE_SEL) || "null");
-      if (s && s.sig === selSig()) state.sel = s.sel.filter(function (i) { return i >= 0 && i < state.points.length; });
+      if (s && s.sig === selSig()) state.sel = s.sel.filter(function (i) { return i >= 0 && i < state.points.length; }).slice(0, MAX_VISIT);
     } catch (e) { /* ignore */ }
   }
   function selNo(i) { return state.sel.indexOf(i) + 1; }
